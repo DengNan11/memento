@@ -51,7 +51,9 @@ def do_extract(messages: list[dict], memory: dict) -> None:
         else:
             print("[本轮未提取到新记忆]")
     except Exception as e:
+        import traceback
         print(f"[提取失败: {e}]")
+        traceback.print_exc()
 
 
 def main():

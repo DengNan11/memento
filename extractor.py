@@ -41,8 +41,19 @@ def extract_entries(conversation_text: str) -> list[dict]:
         },
         timeout=60,
     )
-    resp.raise_for_status()
-    content = resp.json()["choices"][0]["message"]["content"]
+    data = resp.json()
+
+    if "error" in data:
+        print(f"[API 错误: {json.dumps(data['error'], ensure_ascii=False)}]")
+        return []
+
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError) as e:
+        print(f"[API 响应格式异常: {e}]")
+        print(f"[原始响应: {json.dumps(data, ensure_ascii=False)[:500]}]")
+        return []
+
     return _parse_entries(content)
 
 
