@@ -13,10 +13,7 @@ EXTRACT_PROMPT = """你是一个记忆提取器。回顾以下对话，提取关
 5. 只输出 JSON 数组，不要其他内容
 
 输出格式：
-[
-  {"content": "...", "category": "...", "source": "..."},
-  ...
-]
+[{{"content": "...", "category": "...", "source": "..."}}, ...]
 
 对话内容：
 {conversation}
