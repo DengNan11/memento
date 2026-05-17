@@ -1,7 +1,8 @@
 import json
 import re
+import requests
 
-from config import BASE_URL, API_KEY, MODEL
+from config import MODELS, DEFAULT_MODEL
 
 EXTRACT_PROMPT = """你是一个记忆提取器。回顾以下对话，提取关于用户的重要信息。
 
@@ -20,19 +21,30 @@ EXTRACT_PROMPT = """你是一个记忆提取器。回顾以下对话，提取关
 """
 
 
-def extract_entries(conversation_text: str) -> list[dict]:
-    import requests
-
+def extract_entries(conversation_text: str, model_key: str = None) -> list[dict]:
+    model_key = model_key or DEFAULT_MODEL
+    cfg = MODELS[model_key]
     prompt = EXTRACT_PROMPT.format(conversation=conversation_text)
 
+    if cfg["api_type"] == "anthropic":
+        content = _call_anthropic(prompt, cfg)
+    else:
+        content = _call_openai(prompt, cfg)
+
+    if not content:
+        return []
+    return _parse_entries(content)
+
+
+def _call_openai(prompt: str, cfg: dict) -> str | None:
     resp = requests.post(
-        f"{BASE_URL}/chat/completions",
+        f"{cfg['base_url']}/chat/completions",
         headers={
-            "Authorization": f"Bearer {API_KEY}",
+            "Authorization": f"Bearer {cfg['api_key']}",
             "Content-Type": "application/json",
         },
         json={
-            "model": MODEL,
+            "model": cfg["model"],
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.3,
         },
@@ -42,16 +54,42 @@ def extract_entries(conversation_text: str) -> list[dict]:
 
     if "error" in data:
         print(f"[API 错误: {json.dumps(data['error'], ensure_ascii=False)}]")
-        return []
+        return None
 
     try:
-        content = data["choices"][0]["message"]["content"]
+        return data["choices"][0]["message"]["content"]
     except (KeyError, IndexError) as e:
         print(f"[API 响应格式异常: {e}]")
-        print(f"[原始响应: {json.dumps(data, ensure_ascii=False)[:500]}]")
-        return []
+        return None
 
-    return _parse_entries(content)
+
+def _call_anthropic(prompt: str, cfg: dict) -> str | None:
+    resp = requests.post(
+        f"{cfg['base_url']}/v1/messages",
+        headers={
+            "x-api-key": cfg["api_key"],
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": cfg["model"],
+            "max_tokens": 4096,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+        },
+        timeout=60,
+    )
+    data = resp.json()
+
+    if "error" in data:
+        print(f"[API 错误: {json.dumps(data['error'], ensure_ascii=False)}]")
+        return None
+
+    text_parts = []
+    for block in data.get("content", []):
+        if block.get("type") == "text":
+            text_parts.append(block["text"])
+    return "\n".join(text_parts) if text_parts else None
 
 
 def format_conversation(messages: list[dict]) -> str:

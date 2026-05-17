@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 FRONTEND_DIR = Path(__file__).parent / "frontend" / "dist"
 
-from config import API_KEY, BASE_URL, MODEL, EXTRACT_BATCH_SIZE
+from config import MODELS, DEFAULT_MODEL, EXTRACT_BATCH_SIZE
 from memory import load_memory, save_memory, get_context_text, add_entries
 from extractor import extract_entries, format_conversation
 
@@ -25,6 +25,7 @@ class Session:
         self.messages: list[dict] = []
         self.turn_count: int = 0
         self.memory: dict = {}
+        self.current_model: str = DEFAULT_MODEL
 
     def reset(self):
         self.messages = [{"role": "system", "content": build_system_prompt(self.memory)}]
@@ -45,14 +46,23 @@ def build_system_prompt(memory: dict) -> str:
 
 
 def call_llm(messages: list[dict]) -> str:
+    model_cfg = MODELS[session.current_model]
+
+    if model_cfg["api_type"] == "anthropic":
+        return _call_anthropic(messages, model_cfg)
+    else:
+        return _call_openai(messages, model_cfg)
+
+
+def _call_openai(messages: list[dict], cfg: dict) -> str:
     resp = requests.post(
-        f"{BASE_URL}/chat/completions",
+        f"{cfg['base_url']}/chat/completions",
         headers={
-            "Authorization": f"Bearer {API_KEY}",
+            "Authorization": f"Bearer {cfg['api_key']}",
             "Content-Type": "application/json",
         },
         json={
-            "model": MODEL,
+            "model": cfg["model"],
             "messages": messages,
             "temperature": 0.7,
         },
@@ -60,6 +70,46 @@ def call_llm(messages: list[dict]) -> str:
     )
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"]
+
+
+def _call_anthropic(messages: list[dict], cfg: dict) -> str:
+    # 提取 system prompt
+    system = ""
+    api_messages = []
+    for m in messages:
+        if m["role"] == "system":
+            system = m["content"]
+        else:
+            api_messages.append(m)
+
+    body = {
+        "model": cfg["model"],
+        "max_tokens": 4096,
+        "messages": api_messages,
+        "temperature": 0.7,
+    }
+    if system:
+        body["system"] = system
+
+    resp = requests.post(
+        f"{cfg['base_url']}/v1/messages",
+        headers={
+            "x-api-key": cfg["api_key"],
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        },
+        json=body,
+        timeout=120,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    # 从 content 数组中提取文本
+    text_parts = []
+    for block in data.get("content", []):
+        if block.get("type") == "text":
+            text_parts.append(block["text"])
+    return "\n".join(text_parts) if text_parts else str(data.get("content", ""))
 
 
 def do_extract() -> dict:
@@ -100,6 +150,27 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     auto_extract: dict | None = None
+
+
+class ModelSwitchRequest(BaseModel):
+    model: str
+
+
+@app.get("/api/models")
+def list_models():
+    return {
+        "models": {k: v["name"] for k, v in MODELS.items()},
+        "current": session.current_model,
+    }
+
+
+@app.post("/api/models/switch")
+def switch_model(req: ModelSwitchRequest):
+    if req.model not in MODELS:
+        return {"error": f"未知模型: {req.model}"}
+    session.current_model = req.model
+    session.reset()
+    return {"ok": True, "current": req.model}
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -179,12 +250,9 @@ if FRONTEND_DIR.exists():
 if __name__ == "__main__":
     import uvicorn
 
-    if not API_KEY:
-        print("错误：未设置 DEEPSEEK_API_KEY，请在 .env 文件中配置。")
-        exit(1)
-
     print("=== Memento 个人记忆助手 ===")
-    print(f"模型: {MODEL}")
+    print(f"可用模型: {', '.join(v['name'] for v in MODELS.values())}")
+    print(f"当前模型: {MODELS[session.current_model]['name']}")
     print(f"已有记忆: {len(session.memory.get('entries', []))} 条")
     print("启动中... 浏览器将自动打开 http://localhost:8000")
 

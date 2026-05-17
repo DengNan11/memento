@@ -1,14 +1,29 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import ChatWindow from './components/ChatWindow.vue'
 import InputBar from './components/InputBar.vue'
 import MemoryPanel from './components/MemoryPanel.vue'
+import { getModels, switchModel } from './api/chat.js'
 
 const showMemory = ref(false)
 const chatRef = ref(null)
+const models = ref({})
+const currentModel = ref('')
+
+onMounted(async () => {
+  const data = await getModels()
+  models.value = data.models
+  currentModel.value = data.current
+})
 
 function toggleMemory() {
   showMemory.value = !showMemory.value
+}
+
+async function onModelChange(e) {
+  const key = e.target.value
+  await switchModel(key)
+  currentModel.value = key
 }
 
 function onSend(msg) {
@@ -24,6 +39,11 @@ function onSend(msg) {
         <span class="logo-text">Memento</span>
       </div>
       <div class="header-actions">
+        <select class="model-select" :value="currentModel" @change="onModelChange">
+          <option v-for="(name, key) in models" :key="key" :value="key">
+            {{ name }}
+          </option>
+        </select>
         <button class="btn" @click="toggleMemory">
           {{ showMemory ? '隐藏记忆' : '查看记忆' }}
         </button>
@@ -80,6 +100,27 @@ function onSend(msg) {
   font-size: 18px;
   font-weight: 600;
   color: #fff;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.model-select {
+  padding: 6px 12px;
+  border: 1px solid #3a3a5c;
+  background: #12122a;
+  color: #ccc;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+}
+
+.model-select:focus {
+  border-color: #e94560;
 }
 
 .btn {

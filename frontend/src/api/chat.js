@@ -23,3 +23,17 @@ export async function manualExtract() {
   const resp = await fetch(`${BASE}/extract`, { method: 'POST' })
   return resp.json()
 }
+
+export async function getModels() {
+  const resp = await fetch(`${BASE}/models`)
+  return resp.json()
+}
+
+export async function switchModel(model) {
+  const resp = await fetch(`${BASE}/models/switch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model }),
+  })
+  return resp.json()
+}
