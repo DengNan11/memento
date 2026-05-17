@@ -2,10 +2,15 @@ import os
 import webbrowser
 import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+
+FRONTEND_DIR = Path(__file__).parent / "frontend" / "dist"
 
 from config import API_KEY, BASE_URL, MODEL, EXTRACT_BATCH_SIZE
 from memory import load_memory, save_memory, get_context_text, add_entries
@@ -157,6 +162,18 @@ def manual_extract():
     result = do_extract()
     session.reset()
     return result
+
+
+# 伺服前端静态文件
+if FRONTEND_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        file_path = FRONTEND_DIR / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(FRONTEND_DIR / "index.html")
 
 
 if __name__ == "__main__":
